@@ -205,18 +205,18 @@ request_line: token t_sp text t_sp text t_crlf {
 }
 
 request_header: token ows t_colon ows text ows t_crlf {
-	YPRINTF("request_Header:\n%s\n%s\n",$1,$5);
+    YPRINTF("request_Header:\n%s\n%s\n",$1,$5);
     strcpy(parsing_request->headers[parsing_request->header_count].header_name, $1);
-	strcpy(parsing_request->headers[parsing_request->header_count].header_value, $5);
-	parsing_request->header_count++;
-	parsing_request->headers = realloc( parsing_request->headers , sizeof(Request_header) * (parsing_request->header_count + 1) );
+    strcpy(parsing_request->headers[parsing_request->header_count].header_value, $5);
+    parsing_request->header_count++;
+    parsing_request->headers = realloc( parsing_request->headers , sizeof(Request_header) *                           (parsing_request->header_count + 1) );
 }; |
 request_header: request_header token ows t_colon ows text ows t_crlf {
-	YPRINTF("request_Header:\n%s\n%s\n",$2,$6);
+    YPRINTF("request_Header:\n%s\n%s\n",$2,$6);
     strcpy(parsing_request->headers[parsing_request->header_count].header_name, $2);
-	strcpy(parsing_request->headers[parsing_request->header_count].header_value, $6);
-	parsing_request->header_count++;
-	parsing_request->headers = realloc( parsing_request->headers , sizeof(Request_header) * (parsing_request->header_count + 1) );
+    strcpy(parsing_request->headers[parsing_request->header_count].header_value, $6);
+    parsing_request->header_count++;
+    parsing_request->headers = realloc( parsing_request->headers , sizeof(Request_header) *                           (parsing_request->header_count + 1) );
 };
 
 
