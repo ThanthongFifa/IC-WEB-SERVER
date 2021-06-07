@@ -1,4 +1,3 @@
-//base on inclass micro_cc.c
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -11,6 +10,16 @@
 #include <pthread.h>
 #include "parse.h"
 #include "pcsa_net.h"
+
+//---------- DEBUG TOOLS----------
+//#define YACCDEBUG
+#define YYERROR_VERBOSE
+#ifdef YACCDEBUG
+#define YPRINTF(...) printf(__VA_ARGS__)
+#else
+#define YPRINTF(...)
+#endif
+//--------------------------------
 
 /* Rather arbitrary. In real life, be careful with buffer overflow */
 #define MAXBUF 8192
@@ -138,13 +147,14 @@ void send_get(int connFd, char* rootFol, char* req_obj) {
     int result = write_header( headr, fd, local );
     write_all(connFd, headr, strlen(headr));
 
-    // if (result < 0){
-    //     if ( (close(fd)) < 0 ){
-    //         printf("Failed to close input\n");
-    //     }
-    //     return;
-    // }
+    if (result < 0){
+        if ( (close(fd)) < 0 ){
+            printf("Failed to close input\n");
+        }
+        return;
+    }
 
+    // send body
     char buf[MAXBUF];
     ssize_t numRead;
     while ((numRead = read(fd, buf, MAXBUF)) > 0) {
@@ -165,13 +175,12 @@ void serve_http(int connFd, char* rootFol){
         if (strcmp(line, "\r\n") == 0){ 
             break; 
         }
-        
     }
 
     Request *request = parse(buf,MAXBUF,connFd);
     char headr[MAXBUF];
 
-    if (request == NULL){
+    if (request == NULL){ // check parsing fail
         printf("LOG: Failed to parse request\n");
         sprintf(headr, 
             "HTTP/1.1 400 Parsing Failed\r\n"
@@ -180,7 +189,7 @@ void serve_http(int connFd, char* rootFol){
         write_all(connFd, headr, strlen(headr));
         return;
     }
-    else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){
+    else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
         printf("LOG: Incompatible HTTP version\n");
         sprintf(headr, 
             "HTTP/1.1 505 incompatable version\r\n"
@@ -190,14 +199,11 @@ void serve_http(int connFd, char* rootFol){
         return;
     }
 
-    if (strcasecmp( request->http_method , "GET") == 0 ) {
+    if (strcasecmp( request->http_method , "GET") == 0 ) { // handle GET request
         printf("LOG: GET method requested\n");
         send_get(connFd, rootFol, request->http_uri );
     }
-    else if (strcasecmp( request->http_method , "HEAD") == 0 ) {
-        //printf("%d\n", connFd);
-        //printf("%s\n", rootFol);
-        //printf("%s\n", request->http_uri);
+    else if (strcasecmp( request->http_method , "HEAD") == 0 ) { // handle HEAD request
         printf("LOG: HEAD method requested\n");
         send_header(connFd, rootFol, request->http_uri );
     }
@@ -243,7 +249,7 @@ void* conn_handler(void *args) {
 int main(int argc, char* argv[]) {
     int listenFd = open_listenfd(argv[2]);
 
-    if (argc > 3){
+    if (argc >= 3){
         dirName = argv[3];
     }
     else{
@@ -280,6 +286,10 @@ int main(int argc, char* argv[]) {
 
 
 /*
+---------------- Disclamer ----------------
+
+this code is base on inclass micro_cc.c
+
 ------------ People that help me ------------
 
 - Thanawin Boonpojanasoontorn  (6280163)
