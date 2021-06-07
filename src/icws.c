@@ -17,6 +17,33 @@
 
 typedef struct sockaddr SA;
 
+char* get_mime(char* ext){ // return mime
+    if ( strcmp(ext, "html") == 0 || strcmp(ext, "htm") == 0 ){
+        return "text/html";
+    }
+    else if ( strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0){
+        return "image/jpeg";
+    }
+    else if ( strcmp(ext, "css") == 0 ){
+        return "text/css";
+    }
+    else if ( strcmp(ext, "csv") == 0 ){
+        return "text/csv";
+    }
+    else if ( strcmp(ext, "txt") == 0 ){
+        return "text/plain";
+    }
+    else if ( strcmp(ext, "png") == 0 ){
+        return "image/png";
+    }
+    else if ( strcmp(ext, "gif") == 0 ){
+        return "image/gif";
+    }
+    else{
+        return "null";
+    }
+}
+
 void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file location
     strcpy(loc, rootFol);               // loc = rootFol
     if (strcmp(req_obj, "/") == 0){     // if input == / then req_obj = /index
@@ -26,7 +53,7 @@ void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file locatio
         strcat(loc, "/");   
     }
     strcat(loc, req_obj);
-    printf(" File location is: %s \n", loc);
+    //printf("File location is: %s \n", loc);
 }
 
 char* get_filename_ext(char *filename){ // return filename ext
@@ -60,24 +87,14 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
             "Connection: close\r\n");
         return -1;
     }
+    // get mime
+    char* ext = get_filename_ext(loc);
+    char* mime;
+    mime = get_mime(ext);
 
-    char * ext = get_filename_ext(loc);
-    char * mime;
-
-     // check extension
-    if ( strcmp(ext, "html") == 0 )
-        mime = "text/html";
-    else if ( strcmp(ext, "jpg") == 0 )
-        mime = "image/jpeg";
-    else if ( strcmp(ext, "jpeg") == 0 )
-        mime = "image/jpeg";
-    else{
-        mime = "null";
-    }
-
-     if ( strcmp(mime, "null")==0){
+     if ( strcmp(mime, "null") == 0){
         sprintf(headr, 
-            "HTTP/1.1 999 file type not support\r\n"
+            "HTTP/1.1 400 file type not support\r\n"
             "Server: icws\r\n"
             "Connection: close\r\n");
         return -1;
@@ -95,12 +112,13 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
 
 void send_header(int connFd, char* rootFol, char* req_obj){ // respind with ONLY header
     char local[MAXBUF];
-
+   
     get_file_local(local, rootFol, req_obj); //keep file location in local
 
     int fd = open(local , O_RDONLY); // open req_obg in rootFol
 
     char headr[MAXBUF]; // this is the header
+
     write_header( headr, fd, local ); // this write header to headr
     write_all(connFd, headr, strlen(headr)); // send headr
 
@@ -120,41 +138,55 @@ void send_get(int connFd, char* rootFol, char* req_obj) {
     int result = write_header( headr, fd, local );
     write_all(connFd, headr, strlen(headr));
 
-    if (result < 0){
-        if ( (close(fd)) < 0 ){
-            printf("Failed to close input\n");
-        }
-        return;
-    }
+    // if (result < 0){
+    //     if ( (close(fd)) < 0 ){
+    //         printf("Failed to close input\n");
+    //     }
+    //     return;
+    // }
 
     char buf[MAXBUF];
     ssize_t numRead;
     while ((numRead = read(fd, buf, MAXBUF)) > 0) {
         write_all(connFd, buf, numRead);
     }
+
     if ( (close(fd)) < 0 ){
         printf("Failed to close input\n");
     }
 }
     
-
-    
-
 void serve_http(int connFd, char* rootFol){
     char buf[MAXBUF];
-    int readRet = read(connFd,buf,8192);
+    char line[MAXBUF];
 
-    Request *request = parse(buf,readRet,connFd);
+    while ( read_line(connFd, line, MAXBUF) > 0 ){
+        strcat(buf, line);
+        if (strcmp(line, "\r\n") == 0){ 
+            break; 
+        }
+        
+    }
+
+    Request *request = parse(buf,MAXBUF,connFd);
+    char headr[MAXBUF];
 
     if (request == NULL){
         printf("LOG: Failed to parse request\n");
+        sprintf(headr, 
+            "HTTP/1.1 400 Parsing Failed\r\n"
+            "Server: icws\r\n"
+            "Connection: close\r\n");
+        write_all(connFd, headr, strlen(headr));
         return;
     }
-    if (strcasecmp( request->http_method , "GET") == 0 && strcasecmp( request->http_version , "HTTP/1.1") == 0) {
-
-        }
     else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){
         printf("LOG: Incompatible HTTP version\n");
+        sprintf(headr, 
+            "HTTP/1.1 505 incompatable version\r\n"
+            "Server: icws\r\n"
+            "Connection: close\r\n");
+        write_all(connFd, headr, strlen(headr));
         return;
     }
 
@@ -163,6 +195,9 @@ void serve_http(int connFd, char* rootFol){
         send_get(connFd, rootFol, request->http_uri );
     }
     else if (strcasecmp( request->http_method , "HEAD") == 0 ) {
+        //printf("%d\n", connFd);
+        //printf("%s\n", rootFol);
+        //printf("%s\n", request->http_uri);
         printf("LOG: HEAD method requested\n");
         send_header(connFd, rootFol, request->http_uri );
     }
@@ -170,7 +205,7 @@ void serve_http(int connFd, char* rootFol){
         printf("LOG: Unknown request\n\n");
         sprintf(headr, 
             "HTTP/1.1 501 Method not implemented\r\n"
-            "Server: Micro\r\n"
+            "Server: icws\r\n"
             "Connection: close\r\n");
         write_all(connFd, headr, strlen(headr));
     }
@@ -178,7 +213,6 @@ void serve_http(int connFd, char* rootFol){
     free(request->headers);
     free(request);
 }
-
 
 struct survival_bag {
         struct sockaddr_storage clientAddr;
@@ -200,14 +234,17 @@ void* conn_handler(void *args) {
     return NULL; /* Nothing meaningful to return */
 }
 
-// as server: ./icws 22701 ./sample-www/
-// as client: telnet localhost 22701
-
+/* as server: ./icws localhost 22701 ./sample-www
+   as client: telnet localhost 22701
+              netcat localhost [portnum] < [filename]
+              GET /<filename> HTTP/1.1
+              HEAD /<filename> HTTP/1.1
+*/
 int main(int argc, char* argv[]) {
-    int listenFd = open_listenfd(argv[1]);
+    int listenFd = open_listenfd(argv[2]);
 
-    if (argc >= 3){
-        dirName = argv[2];
+    if (argc > 3){
+        dirName = argv[3];
     }
     else{
         dirName = "./";
@@ -240,3 +277,22 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
+
+/*
+------------ People that help me ------------
+
+- Thanawin Boonpojanasoontorn  (6280163)
+- Vanessa Rujipatanakul (6280204) ------ she help me alot
+
+------------ References ------------
+
+https://github.com/Yan-J/Networks-HTTP-Server
+https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.1
+https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
+https://www.w3schools.com/tags/ref_httpmethods.asp
+http://beej.us/guide/bgnet/html/
+https://www.google.com/search?q=impliment+web+server+support+GET+and+HEAD+github&oq=impliment+web+server&aqs=chrome.0.69i59j0i13j69i57j0i13j69i59j0i22i30l5.27028j1j7&sourceid=chrome&ie=UTF-8
+https://stackoverflow.com/questions/423626/get-mime-type-from-filename-in-c
+
+*/
