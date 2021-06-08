@@ -105,21 +105,114 @@ void write_all(int connFd, char *buf, size_t len) {
     }
 }
 
-/* Bad, slow readline */
-//TODO: make this faster
+// old read_line + parse.c = this read_line
 ssize_t read_line(int connFd, char *usrbuf, size_t maxlen) {
-    int n;
-    char c, *bufp = usrbuf;
+    enum {
+		STATE_START = 0, STATE_CR, STATE_CRLF//, STATE_CRLFCR, STATE_CRLFCRLF
+	};
 
-    for (n = 1; n < maxlen; n++) { 
-        int numRead;
-        if ((numRead = read(connFd, &c, 1)) == 1) {
-            *bufp++ = c;
-            if (c == '\n') { n++; break; }
-        } 
-        else if (numRead == 0) { break; } /* EOF */
-        else return -1;	  /* Error */
+    int i = 0, state;
+    char ch;
+    memset(usrbuf, 0, 8192);
+    int num;
+    int max = maxlen-1;
+
+    state = STATE_START; // start state here
+	while (state != STATE_CRLF) {
+        char expected = 0; // keep expected next char '\r' OR '\n'
+
+        if (i == max){ // if almost at MAXBUF, break
+			break;
+        }
+
+        if ( ( num = read(connFd, &ch, 1) ) < 0){break;} // if cant read, break
+
+        usrbuf[i++] = ch; // use for iterate user input (userbuf)
+
+        switch (state) {
+		case STATE_START:
+		//case STATE_CRLF:
+			expected = '\r';
+			break;
+		case STATE_CR:
+		//case STATE_CRLFCR:
+			expected = '\n';
+			break;
+		default:
+			state = STATE_START;
+			continue;
+		}
+
+        // if found \r, expect \n next, then move state else restart at first stage
+		if (ch == expected){
+			state++; // STATE_START--->STATE_CR--->STATE_CRLF--->finish
+        }
+		else{
+			state = STATE_START;
+        }
+    
     }
-    *bufp = '\0';
-    return n-1;
+    usrbuf[i] = '\0'; // mark the end of usrbuf
+    return i;
+    
 }
+//Old read_line
+    // int n;
+    // char c, *bufp = usrbuf;
+    // for (n = 1; n < maxlen; n++) { 
+    //     int numRead;
+    //     if ((numRead = read(connFd, &c, 1)) == 1) {
+    //         *bufp++ = c;
+    //         if (c == '\n') { n++; break; }
+    //     } 
+    //     else if (numRead == 0) { break; } /* EOF */
+    //     else return -1;	  /* Error */
+    // }
+    // *bufp = '\0';
+    // return n-1;
+    /*
+    //from parse.c
+
+Request * parse(char *buffer, int size, int socketFd) {
+    //Differant states in the state machine
+    enum {
+		STATE_START = 0, STATE_CR, STATE_CRLF, STATE_CRLFCR, STATE_CRLFCRLF
+	};
+
+	int i = 0, state;
+	size_t offset = 0;
+	char ch;
+	char buf[8192];
+	memset(buf, 0, 8192);
+
+	state = STATE_START;
+	while (state != STATE_CRLFCRLF) {
+		char expected = 0;
+
+		if (i == size)
+			break;
+
+		ch = buffer[i++];
+		buf[offset++] = ch;
+
+		switch (state) {
+		case STATE_START:
+		case STATE_CRLF:
+			expected = '\r';
+			break;
+		case STATE_CR:
+		case STATE_CRLFCR:
+			expected = '\n';
+			break;
+		default:
+			state = STATE_START;
+			continue;
+		}
+
+		if (ch == expected)
+			state++;
+		else
+			state = STATE_START;
+
+
+    */

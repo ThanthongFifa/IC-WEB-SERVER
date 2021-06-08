@@ -25,6 +25,8 @@
 /* Rather arbitrary. In real life, be careful with buffer overflow */
 #define MAXBUF 8192
 
+char* dirName;
+
 typedef struct sockaddr SA;
 
 char* get_mime(char* ext){ // return mime
@@ -76,7 +78,7 @@ void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file locatio
         strcat(loc, "/");   
     }
     strcat(loc, req_obj);
-    //printf("File location is: %s \n", loc);
+    YPRINTF("File location is: %s \n", loc);
 }
 
 char* get_filename_ext(char *filename){ // return filename ext
@@ -252,8 +254,6 @@ struct survival_bag {
         int connFd;
 };
 
-char* dirName;
-
 void* conn_handler(void *args) {
     struct survival_bag *context = (struct survival_bag *) args;
     
@@ -333,5 +333,6 @@ https://www.google.com/search?q=impliment+web+server+support+GET+and+HEAD+github
 https://stackoverflow.com/questions/423626/get-mime-type-from-filename-in-c
 https://stackoverflow.com/questions/1442116/how-to-get-the-date-and-time-values-in-a-c-program
 https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
+https://www.codeproject.com/Articles/1275479/State-Machine-Design-in-C
 
 */
