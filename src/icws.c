@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <time.h>
 #include "parse.h"
 #include "pcsa_net.h"
 
@@ -53,6 +54,19 @@ char* get_mime(char* ext){ // return mime
     }
 }
 
+
+char* today(){
+    char ans[100];
+    time_t t;
+
+    time(&t);
+
+    struct tm *local = localtime(&t);
+    sprintf(ans, "%d/%d/%d", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900);
+    
+    return strdup(ans);
+}
+
 void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file location
     strcpy(loc, rootFol);               // loc = rootFol
     if (strcmp(req_obj, "/") == 0){     // if input == / then req_obj = /index
@@ -76,12 +90,13 @@ char* get_filename_ext(char *filename){ // return filename ext
 }
 
 int write_header(char* headr, int fd, char* loc){ // return -1 if error
-    // check if file exist
+    // if can open
     if (fd < 0){
         sprintf(headr, 
                 "HTTP/1.1 404 not found\r\n"
+                "Date: %s\r\n"
                 "Server: icws\r\n"
-                "Connection: close\r\n");
+                "Connection: close\r\n", today());
         return -1;
     }
 
@@ -91,30 +106,39 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
     size_t filesize = st.st_size;
     if (filesize < 0){
         sprintf(headr, 
-            "HTTP/1.1 999 file size error\r\n"
+            "HTTP/1.1 400 file size error\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n");
+            "Connection: close\r\n", today());
         return -1;
     }
+
     // get mime
     char* ext = get_filename_ext(loc);
     char* mime;
     mime = get_mime(ext);
 
-     if ( strcmp(mime, "null") == 0){
+    // if supported mime
+    if ( strcmp(mime, "null") == 0){
         sprintf(headr, 
             "HTTP/1.1 400 file type not support\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n");
+            "Connection: close\r\n", today());
         return -1;
     }
 
+    // if nothing wrong
+    char* last_mod = ctime(&st.st_mtime); // get last modified
+
     sprintf(headr, 
             "HTTP/1.1 200 OK\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n", filesize, mime);
+            "Content-type: %s\r\n"
+            "Last-Modified: %s\r\n\r\n", today(), filesize, mime, last_mod);
     
     return 0;
 }
@@ -184,8 +208,9 @@ void serve_http(int connFd, char* rootFol){
         printf("LOG: Failed to parse request\n");
         sprintf(headr, 
             "HTTP/1.1 400 Parsing Failed\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n");
+            "Connection: close\r\n", today());
         write_all(connFd, headr, strlen(headr));
         return;
     }
@@ -193,8 +218,9 @@ void serve_http(int connFd, char* rootFol){
         printf("LOG: Incompatible HTTP version\n");
         sprintf(headr, 
             "HTTP/1.1 505 incompatable version\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n");
+            "Connection: close\r\n", today());
         write_all(connFd, headr, strlen(headr));
         return;
     }
@@ -211,8 +237,9 @@ void serve_http(int connFd, char* rootFol){
         printf("LOG: Unknown request\n\n");
         sprintf(headr, 
             "HTTP/1.1 501 Method not implemented\r\n"
+            "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n");
+            "Connection: close\r\n", today());
         write_all(connFd, headr, strlen(headr));
     }
 
@@ -304,5 +331,7 @@ https://www.w3schools.com/tags/ref_httpmethods.asp
 http://beej.us/guide/bgnet/html/
 https://www.google.com/search?q=impliment+web+server+support+GET+and+HEAD+github&oq=impliment+web+server&aqs=chrome.0.69i59j0i13j69i57j0i13j69i59j0i22i30l5.27028j1j7&sourceid=chrome&ie=UTF-8
 https://stackoverflow.com/questions/423626/get-mime-type-from-filename-in-c
+https://stackoverflow.com/questions/1442116/how-to-get-the-date-and-time-values-in-a-c-program
+https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
 
 */
