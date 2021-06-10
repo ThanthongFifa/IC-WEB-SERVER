@@ -265,7 +265,7 @@ void* conn_handler(void *args) {
     return NULL; /* Nothing meaningful to return */
 }
 
-/* as server:   ./icws --port <listening port> --root <wwwRoot>
+/* as server:   ./icws --port 22701 --root ./sample-www
                 ./icws localhost 22701 ./sample-www
    as client: telnet localhost 22701
               netcat localhost [portnum] < [filename]
@@ -275,7 +275,7 @@ void* conn_handler(void *args) {
 int main(int argc, char* argv[]) {
     int listenFd = open_listenfd(argv[2]);
 
-    if (argc >= 3){
+    if (argc > 3){
         dirName = argv[4];
     }
     else{
