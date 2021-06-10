@@ -56,11 +56,9 @@ char* get_mime(char* ext){ // return mime
     }
 }
 
-
 char* today(){
     char ans[100];
     time_t t;
-
     time(&t);
 
     struct tm *local = localtime(&t);
@@ -267,7 +265,8 @@ void* conn_handler(void *args) {
     return NULL; /* Nothing meaningful to return */
 }
 
-/* as server: ./icws localhost 22701 ./sample-www
+/* as server:   ./icws --port <listening port> --root <wwwRoot>
+                ./icws localhost 22701 ./sample-www
    as client: telnet localhost 22701
               netcat localhost [portnum] < [filename]
               GET /<filename> HTTP/1.1
@@ -277,7 +276,7 @@ int main(int argc, char* argv[]) {
     int listenFd = open_listenfd(argv[2]);
 
     if (argc >= 3){
-        dirName = argv[3];
+        dirName = argv[4];
     }
     else{
         dirName = "./";
@@ -320,7 +319,7 @@ this code is base on inclass micro_cc.c
 ------------ People that help me ------------
 
 - Thanawin Boonpojanasoontorn  (6280163)
-- Vanessa Rujipatanakul (6280204) ------ she help me alot
+- Vanessa Rujipatanakul (6280204)
 
 ------------ References ------------
 
