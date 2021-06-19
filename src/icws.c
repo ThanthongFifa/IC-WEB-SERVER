@@ -333,5 +333,7 @@ https://stackoverflow.com/questions/423626/get-mime-type-from-filename-in-c
 https://stackoverflow.com/questions/1442116/how-to-get-the-date-and-time-values-in-a-c-program
 https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
 https://www.codeproject.com/Articles/1275479/State-Machine-Design-in-C
+https://github.com/Pithikos/C-Thread-Pool
+https://github.com/antimattercorrade/concurrent_web_servers
 
 */

@@ -1,0 +1,207 @@
+u6280026@syskill:~/PCSA/project2$ git show 0.1.0
+tag 0.1.0
+Tagger: ThanthongFifa <fifa0962@gmail.com>
+Date:   Tue Jun 8 09:54:45 2021 +0700
+
+MileStone 1 DONE!
+
+commit fadbef493353489565bacd1695b565e659a40a14 (HEAD -> main, tag: 0.1.0, origin/main)
+Author: ThanthongFifa <fifa0962@gmail.com>
+Date:   Tue Jun 8 09:52:50 2021 +0700
+
+    remake read_line() with parse.c
+
+diff --git a/src/icws.c b/src/icws.c
+index 6209a29..6a93203 100644
+--- a/src/icws.c
++++ b/src/icws.c
+@@ -25,6 +25,8 @@
+ /* Rather arbitrary. In real life, be careful with buffer overflow */
+:...skipping...
+tag 0.1.0
+Tagger: ThanthongFifa <fifa0962@gmail.com>
+Date:   Tue Jun 8 09:54:45 2021 +0700
+
+MileStone 1 DONE!
+
+commit fadbef493353489565bacd1695b565e659a40a14 (HEAD -> main, tag: 0.1.0, origin/main)
+Author: ThanthongFifa <fifa0962@gmail.com>
+Date:   Tue Jun 8 09:52:50 2021 +0700
+
+    remake read_line() with parse.c
+
+diff --git a/src/icws.c b/src/icws.c
+index 6209a29..6a93203 100644
+--- a/src/icws.c
++++ b/src/icws.c
+@@ -25,6 +25,8 @@
+ /* Rather arbitrary. In real life, be careful with buffer overflow */
+ #define MAXBUF 8192
+ 
++char* dirName;
++
+ typedef struct sockaddr SA;
+ 
+ char* get_mime(char* ext){ // return mime
+@@ -76,7 +78,7 @@ void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file locatio
+         strcat(loc, "/");   
+     }
+     strcat(loc, req_obj);
+-    //printf("File location is: %s \n", loc);
++    YPRINTF("File location is: %s \n", loc);
+ }
+ 
+ char* get_filename_ext(char *filename){ // return filename ext
+@@ -252,8 +254,6 @@ struct survival_bag {
+         int connFd;
+ };
+ 
+-char* dirName;
+-
+ void* conn_handler(void *args) {
+     struct survival_bag *context = (struct survival_bag *) args;
+     
+@@ -333,5 +333,6 @@ https://www.google.com/search?q=impliment+web+server+support+GET+and+HEAD+github
+ https://stackoverflow.com/questions/423626/get-mime-type-from-filename-in-c
+ https://stackoverflow.com/questions/1442116/how-to-get-the-date-and-time-values-in-a-c-program
+ https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
++https://www.codeproject.com/Articles/1275479/State-Machine-Design-in-C
+ 
+ */
+diff --git a/src/pcsa_net.c b/src/pcsa_net.c
+index 63cf127..4eceb7b 100644
+--- a/src/pcsa_net.c
++++ b/src/pcsa_net.c
+@@ -105,21 +105,114 @@ void write_all(int connFd, char *buf, size_t len) {
+     }
+ }
+ 
+-/* Bad, slow readline */
+-//TODO: make this faster
++// old read_line + parse.c = this read_line
+ ssize_t read_line(int connFd, char *usrbuf, size_t maxlen) {
+-    int n;
+-    char c, *bufp = usrbuf;
+-
+-    for (n = 1; n < maxlen; n++) { 
+-        int numRead;
+-        if ((numRead = read(connFd, &c, 1)) == 1) {
+-            *bufp++ = c;
+-            if (c == '\n') { n++; break; }
+-        } 
+-        else if (numRead == 0) { break; } /* EOF */
+-        else return -1;          /* Error */
++    enum {
++               STATE_START = 0, STATE_CR, STATE_CRLF//, STATE_CRLFCR, STATE_CRLFCRLF
++       };
++
++    int i = 0, state;
++    char ch;
++    memset(usrbuf, 0, 8192);
++    int num;
++    int max = maxlen-1;
++
++    state = STATE_START; // start state here
++       while (state != STATE_CRLF) {
++        char expected = 0; // keep expected next char '\r' OR '\n'
++
++        if (i == max){ // if almost at MAXBUF, break
++                       break;
++        }
++
++        if ( ( num = read(connFd, &ch, 1) ) < 0){break;} // if cant read, break
++
++        usrbuf[i++] = ch; // use for iterate user input (userbuf)
++
++        switch (state) {
++               case STATE_START:
++               //case STATE_CRLF:
++                       expected = '\r';
++                       break;
++               case STATE_CR:
++               //case STATE_CRLFCR:
++                       expected = '\n';
++                       break;
++               default:
++                       state = STATE_START;
++                       continue;
++               }
++
++        // if found \r, expect \n next, then move state else restart at first stage
++               if (ch == expected){
++                       state++; // STATE_START--->STATE_CR--->STATE_CRLF--->finish
++        }
++               else{
++                       state = STATE_START;
++        }
++    
+     }
+-    *bufp = '\0';
+-    return n-1;
+-}
+\ No newline at end of file
++    usrbuf[i] = '\0'; // mark the end of usrbuf
++    return i;
++    
++}
++//Old read_line
++    // int n;
++    // char c, *bufp = usrbuf;
++    // for (n = 1; n < maxlen; n++) { 
++    //     int numRead;
++    //     if ((numRead = read(connFd, &c, 1)) == 1) {
++    //         *bufp++ = c;
++    //         if (c == '\n') { n++; break; }
++    //     } 
++    //     else if (numRead == 0) { break; } /* EOF */
++    //     else return -1;       /* Error */
++    // }
++    // *bufp = '\0';
++    // return n-1;
++    /*
++    //from parse.c
++
++Request * parse(char *buffer, int size, int socketFd) {
++    //Differant states in the state machine
++    enum {
++               STATE_START = 0, STATE_CR, STATE_CRLF, STATE_CRLFCR, STATE_CRLFCRLF
++       };
++
++       int i = 0, state;
++       size_t offset = 0;
++       char ch;
++       char buf[8192];
++       memset(buf, 0, 8192);
++
++       state = STATE_START;
++       while (state != STATE_CRLFCRLF) {
++               char expected = 0;
++
++               if (i == size)
++                       break;
++
++               ch = buffer[i++];
++               buf[offset++] = ch;
++
++               switch (state) {
++               case STATE_START:
++               case STATE_CRLF:
++                       expected = '\r';
++                       break;
++               case STATE_CR:
++               case STATE_CRLFCR:
++                       expected = '\n';
++                       break;
++               default:
++                       state = STATE_START;
++                       continue;
++               }
++
++               if (ch == expected)
++                       state++;
++               else
++                       state = STATE_START;
++
++
++    */
+\ No newline at end of file
