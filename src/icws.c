@@ -11,21 +11,22 @@
 #include <time.h>
 #include "parse.h"
 #include "pcsa_net.h"
-
-//---------- DEBUG TOOLS----------
-//#define YACCDEBUG
-#define YYERROR_VERBOSE
-#ifdef YACCDEBUG
-#define YPRINTF(...) printf(__VA_ARGS__)
-#else
-#define YPRINTF(...)
-#endif
-//--------------------------------
+#include <poll.h>
+//#include "myqueue.c"
 
 /* Rather arbitrary. In real life, be careful with buffer overflow */
 #define MAXBUF 8192
 
+//---------- thread pool ----------
+#define MAXTHREAD 256
+int num_thread;
+
+pthread_t thread_pool[MAXTHREAD];
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condition_var = PTHREAD_COND_INITIALIZER;
+
 char* dirName;
+int timeout;
 
 typedef struct sockaddr SA;
 
@@ -76,7 +77,6 @@ void get_file_local(char* loc, char* rootFol, char* req_obj){ //get file locatio
         strcat(loc, "/");   
     }
     strcat(loc, req_obj);
-    YPRINTF("File location is: %s \n", loc);
 }
 
 char* get_filename_ext(char *filename){ // return filename ext
@@ -193,15 +193,38 @@ void send_get(int connFd, char* rootFol, char* req_obj) {
 void serve_http(int connFd, char* rootFol){
     char buf[MAXBUF];
     char line[MAXBUF];
+    struct pollfd fds[1];
+    
 
-    while ( read_line(connFd, line, MAXBUF) > 0 ){
-        strcat(buf, line);
-        if (strcmp(line, "\r\n") == 0){ 
-            break; 
+    for(;;){
+        fds[0].fd = connFd;
+        fds[0].events = POLLIN;
+
+        int t = timeout * 1000;
+
+        int pollret = poll(fds, 1, t);
+
+        if(pollret < 0){
+            perror("poll() fail\n");
+            return;
+        } else if(pollret == 0){
+            printf("timeout\n");
+            return;
+        } else{
+            while ( read_line(connFd, line, MAXBUF) > 0 ){ //
+                strcat(buf, line);
+                if (strcmp(line, "\r\n") == 0){ 
+                    break; 
+                }
+            }
+            break;
         }
     }
 
+    pthread_mutex_lock(&mutex);
     Request *request = parse(buf,MAXBUF,connFd);
+    pthread_mutex_unlock(&mutex);
+
     char headr[MAXBUF];
 
     if (request == NULL){ // check parsing fail
@@ -212,6 +235,8 @@ void serve_http(int connFd, char* rootFol){
             "Server: icws\r\n"
             "Connection: close\r\n", today());
         write_all(connFd, headr, strlen(headr));
+        free(request->headers);
+        free(request);
         return;
     }
     else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
@@ -222,6 +247,8 @@ void serve_http(int connFd, char* rootFol){
             "Server: icws\r\n"
             "Connection: close\r\n", today());
         write_all(connFd, headr, strlen(headr));
+        free(request->headers);
+        free(request);
         return;
     }
 
@@ -252,21 +279,71 @@ struct survival_bag {
         int connFd;
 };
 
+struct node {
+    struct node* next;
+    struct survival_bag *context;
+};
+typedef struct node node_t;
+
+node_t* head = NULL;
+node_t* tail = NULL;
+
+void enqueue(struct survival_bag *context) {
+    node_t *newnode = malloc(sizeof(node_t));
+    newnode->context = context;
+    newnode->next = NULL;
+    if (tail == NULL){
+        head = newnode;
+    } else {
+        tail->next = newnode;
+    }
+    tail = newnode;
+}
+
+struct survival_bag* dequeue(){
+    if (head == NULL){
+        return NULL;
+    } else {
+        struct survival_bag *result = head->context;
+        node_t *temp = head;
+        head = head->next;
+        if (head == NULL ){tail = NULL;}
+        free(temp);
+        return result;
+    }
+}
+
 void* conn_handler(void *args) {
     struct survival_bag *context = (struct survival_bag *) args;
     
-    pthread_detach(pthread_self());
+    //pthread_detach(pthread_self());
     serve_http(context->connFd, dirName);
 
-    close(context->connFd);
+    close(context->connFd); // close connection
     
     free(context); /* Done, get rid of our survival bag */
 
     return NULL; /* Nothing meaningful to return */
 }
 
-/* as server:   ./icws --port 22701 --root ./sample-www
-                ./icws localhost 22701 ./sample-www
+void* thread_function(void *args){
+    for (;;) {
+        int *pclient;
+
+        pthread_mutex_lock(&mutex);
+
+        if( (pclient = dequeue()) == NULL){
+             pthread_cond_wait(&condition_var, &mutex);
+             pclient = dequeue();
+        }
+
+        pthread_mutex_unlock(&mutex);
+        conn_handler(pclient);
+    }
+}
+
+/* as server:   ./icws --port 22701 --root ./sample-www --numThreads 5 --timeout 5
+                ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> 
    as client: telnet localhost 22701
               netcat localhost [portnum] < [filename]
               GET /<filename> HTTP/1.1
@@ -275,24 +352,35 @@ void* conn_handler(void *args) {
 int main(int argc, char* argv[]) {
     int listenFd = open_listenfd(argv[2]);
 
-    if (argc > 3){
+    if (argc > 7){
         dirName = argv[4];
+        num_thread = atoi(argv[6]); //make 5 threads
+        timeout = atoi(argv[8]);
     }
     else{
         dirName = "./";
+        num_thread = 5;
+        timeout = 5;
+    }
+
+    //create thread
+    for (int i=0; i < num_thread; i++){
+        if(pthread_create(&thread_pool[i], NULL, thread_function, NULL) != 0){
+            printf("fail to create thread\n");
+        }
     }
 
     for (;;) {
 
         struct sockaddr_storage clientAddr;
         socklen_t clientLen = sizeof(struct sockaddr_storage);
-        pthread_t threadInfo;
+        //pthread_t threadInfo;
 
         int connFd = accept(listenFd, (SA *) &clientAddr, &clientLen);
 
         if (connFd < 0) { fprintf(stderr, "Failed to accept\n"); continue; }
-        struct survival_bag *context = 
-                    (struct survival_bag *) malloc(sizeof(struct survival_bag));
+
+        struct survival_bag *context = (struct survival_bag *) malloc(sizeof(struct survival_bag));
         context->connFd = connFd;
         
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
@@ -304,7 +392,19 @@ int main(int argc, char* argv[]) {
         else
             printf("Connection from ?UNKNOWN?\n");
                 
-        pthread_create(&threadInfo, NULL, conn_handler, (void *) context);
+        //pthread_create(&threadInfo, NULL, conn_handler, (void *) context);
+
+        int * pclient = malloc(sizeof(int));
+        *pclient = connFd;
+
+        pthread_mutex_lock(&mutex);
+
+        pthread_cond_signal(&condition_var);
+        enqueue(context);
+
+        pthread_mutex_unlock(&mutex);
+
+
     }
 
     return 0;
@@ -335,5 +435,9 @@ https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
 https://www.codeproject.com/Articles/1275479/State-Machine-Design-in-C
 https://github.com/Pithikos/C-Thread-Pool
 https://github.com/antimattercorrade/concurrent_web_servers
+https://youtu.be/_n2hE2gyPxU
+https://youtube.com/playlist?list=PL9IEJIKnBJjH_zM5LnovnoaKlXML5qh17
+
+https://www.youtube.com/watch?v=UP6B324Qh5k //this is for poll
 
 */
