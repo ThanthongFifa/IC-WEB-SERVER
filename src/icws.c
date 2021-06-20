@@ -12,10 +12,11 @@
 #include "parse.h"
 #include "pcsa_net.h"
 #include <poll.h>
-//#include "myqueue.c"
 
 /* Rather arbitrary. In real life, be careful with buffer overflow */
 #define MAXBUF 8192
+#define PERSISTENT 1
+#define CLOSE 0
 
 //---------- thread pool ----------
 #define MAXTHREAD 256
@@ -89,14 +90,14 @@ char* get_filename_ext(char *filename){ // return filename ext
     return name;
 }
 
-int write_header(char* headr, int fd, char* loc){ // return -1 if error
+int write_header(char* headr, int fd, char* loc, char* connection_str){ // return -1 if error
     // if can open
     if (fd < 0){
         sprintf(headr, 
                 "HTTP/1.1 404 not found\r\n"
                 "Date: %s\r\n"
                 "Server: icws\r\n"
-                "Connection: close\r\n", today());
+                "Connection: %s\r\n", today(), connection_str);
         return -1;
     }
 
@@ -109,7 +110,7 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
             "HTTP/1.1 400 file size error\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n", today());
+            "Connection: %s\r\n", today(), connection_str);
         return -1;
     }
 
@@ -124,7 +125,7 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
             "HTTP/1.1 400 file type not support\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n", today());
+            "Connection: %s\r\n", today(), connection_str);
         return -1;
     }
 
@@ -135,15 +136,15 @@ int write_header(char* headr, int fd, char* loc){ // return -1 if error
             "HTTP/1.1 200 OK\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n"
+            "Connection: %s\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
-            "Last-Modified: %s\r\n\r\n", today(), filesize, mime, last_mod);
+            "Last-Modified: %s\r\n\r\n", today(), connection_str, filesize, mime, last_mod);
     
     return 0;
 }
 
-void send_header(int connFd, char* rootFol, char* req_obj){ // respind with ONLY header
+void send_header(int connFd, char* rootFol, char* req_obj, char* connection_str){ // respind with ONLY header
     char local[MAXBUF];
    
     get_file_local(local, rootFol, req_obj); //keep file location in local
@@ -152,7 +153,7 @@ void send_header(int connFd, char* rootFol, char* req_obj){ // respind with ONLY
 
     char headr[MAXBUF]; // this is the header
 
-    write_header( headr, fd, local ); // this write header to headr
+    write_header( headr, fd, local, connection_str); // this write header to headr
     write_all(connFd, headr, strlen(headr)); // send headr
 
     if ( (close(fd)) < 0 ){ // closing
@@ -160,7 +161,7 @@ void send_header(int connFd, char* rootFol, char* req_obj){ // respind with ONLY
     }
 }
 
-void send_get(int connFd, char* rootFol, char* req_obj) {
+void send_get(int connFd, char* rootFol, char* req_obj, char* connection_str) {
     char local[MAXBUF];
 
     get_file_local(local, rootFol, req_obj);
@@ -168,7 +169,7 @@ void send_get(int connFd, char* rootFol, char* req_obj) {
     int fd = open( local , O_RDONLY);
 
     char headr[MAXBUF];
-    int result = write_header( headr, fd, local );
+    int result = write_header( headr, fd, local, connection_str);
     write_all(connFd, headr, strlen(headr));
 
     if (result < 0){
@@ -190,12 +191,12 @@ void send_get(int connFd, char* rootFol, char* req_obj) {
     }
 }
     
-void serve_http(int connFd, char* rootFol){
+int serve_http(int connFd, char* rootFol){
     char buf[MAXBUF];
     char line[MAXBUF];
     struct pollfd fds[1];
     
-
+    //check timeout
     for(;;){
         fds[0].fd = connFd;
         fds[0].events = POLLIN;
@@ -206,10 +207,10 @@ void serve_http(int connFd, char* rootFol){
 
         if(pollret < 0){
             perror("poll() fail\n");
-            return;
+            return CLOSE;
         } else if(pollret == 0){
             printf("timeout\n");
-            return;
+            return CLOSE;
         } else{
             while ( read_line(connFd, line, MAXBUF) > 0 ){ //
                 strcat(buf, line);
@@ -225,6 +226,28 @@ void serve_http(int connFd, char* rootFol){
     Request *request = parse(buf,MAXBUF,connFd);
     pthread_mutex_unlock(&mutex);
 
+    int connection;
+    char* connection_str;
+
+    connection = PERSISTENT;
+    connection_str = "keep-alive";
+
+    char* head_name;
+    char* head_val;
+
+    // check if close or keep-alive
+    for(int i = 0; i < request->header_count;i++){
+        head_name = request->headers[i].header_name;
+        head_val = request->headers[i].header_value;
+        if(strcasecmp(head_name, "CONNECTION") == 0){
+            if(strcasecmp(head_val, "CLOSE") == 0){
+                connection = CLOSE;
+                connection_str = "close";
+            }
+            break;
+        }
+    }
+
     char headr[MAXBUF];
 
     if (request == NULL){ // check parsing fail
@@ -233,11 +256,12 @@ void serve_http(int connFd, char* rootFol){
             "HTTP/1.1 400 Parsing Failed\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n", today());
+            "Connection: %s\r\n", today(), connection_str);
         write_all(connFd, headr, strlen(headr));
-        free(request->headers);
-        free(request);
-        return;
+        memset(buf, 0, MAXBUF);
+        memset(line, 0, MAXBUF);
+        memset(headr, 0, MAXBUF);
+        return connection;
     }
     else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
         printf("LOG: Incompatible HTTP version\n");
@@ -245,20 +269,23 @@ void serve_http(int connFd, char* rootFol){
             "HTTP/1.1 505 incompatable version\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n", today());
+            "Connection: %s\r\n", today(), connection_str);
         write_all(connFd, headr, strlen(headr));
         free(request->headers);
         free(request);
-        return;
+        memset(buf, 0, MAXBUF);
+        memset(line, 0, MAXBUF);
+        memset(headr, 0, MAXBUF);
+        return connection;
     }
 
     if (strcasecmp( request->http_method , "GET") == 0 ) { // handle GET request
         printf("LOG: GET method requested\n");
-        send_get(connFd, rootFol, request->http_uri );
+        send_get(connFd, rootFol, request->http_uri, connection_str);
     }
     else if (strcasecmp( request->http_method , "HEAD") == 0 ) { // handle HEAD request
         printf("LOG: HEAD method requested\n");
-        send_header(connFd, rootFol, request->http_uri );
+        send_header(connFd, rootFol, request->http_uri, connection_str);
     }
     else {
         printf("LOG: Unknown request\n\n");
@@ -266,12 +293,16 @@ void serve_http(int connFd, char* rootFol){
             "HTTP/1.1 501 Method not implemented\r\n"
             "Date: %s\r\n"
             "Server: icws\r\n"
-            "Connection: close\r\n", today());
+            "Connection: %s\r\n", today(), connection_str);
         write_all(connFd, headr, strlen(headr));
     }
 
     free(request->headers);
     free(request);
+    memset(buf, 0, MAXBUF);
+    memset(line, 0, MAXBUF);
+    memset(headr, 0, MAXBUF);
+    return connection;
 }
 
 struct survival_bag {
@@ -315,9 +346,12 @@ struct survival_bag* dequeue(){
 
 void* conn_handler(void *args) {
     struct survival_bag *context = (struct survival_bag *) args;
+    int connection = PERSISTENT;
     
     //pthread_detach(pthread_self());
-    serve_http(context->connFd, dirName);
+    while(connection == PERSISTENT){
+        connection = serve_http(context->connFd, dirName);
+    }
 
     close(context->connFd); // close connection
     
@@ -342,12 +376,15 @@ void* thread_function(void *args){
     }
 }
 
-/* as server:   ./icws --port 22701 --root ./sample-www --numThreads 5 --timeout 5
+/* as server:   ./icws --port 22702 --root ./sample-www --numThreads 5 --timeout 5
                 ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> 
-   as client: telnet localhost 22701
-              netcat localhost [portnum] < [filename]
-              GET /<filename> HTTP/1.1
-              HEAD /<filename> HTTP/1.1
+
+   as client:   telnet localhost 22702
+                curl http://localhost:1234/index.html
+
+                netcat localhost [portnum] < [filename]
+                GET /<filename> HTTP/1.1
+                HEAD /<filename> HTTP/1.1
 */
 int main(int argc, char* argv[]) {
     int listenFd = open_listenfd(argv[2]);
@@ -412,6 +449,9 @@ int main(int argc, char* argv[]) {
 
 
 /*
+---------------- BUG ----------------
+-get warning when curl http://localhost:1234/cat.jpg
+
 ---------------- Disclamer ----------------
 
 this code is base on inclass micro_cc.c
@@ -420,6 +460,7 @@ this code is base on inclass micro_cc.c
 
 - Thanawin Boonpojanasoontorn  (6280163)
 - Vanessa Rujipatanakul (6280204)
+- Krittin Nisunarat (6280782)
 
 ------------ References ------------
 
@@ -435,9 +476,15 @@ https://pubs.opengroup.org/onlinepubs/007908799/xsh/getdate.html
 https://www.codeproject.com/Articles/1275479/State-Machine-Design-in-C
 https://github.com/Pithikos/C-Thread-Pool
 https://github.com/antimattercorrade/concurrent_web_servers
+
+//Thread pool
 https://youtu.be/_n2hE2gyPxU
 https://youtube.com/playlist?list=PL9IEJIKnBJjH_zM5LnovnoaKlXML5qh17
 
-https://www.youtube.com/watch?v=UP6B324Qh5k //this is for poll
+//Timeout poll()
+https://www.youtube.com/watch?v=UP6B324Qh5k 
+
+//Presistant server
+https://github.com/nathan78906/HTTPServer/blob/master/PersistentServer.c 
 
 */
