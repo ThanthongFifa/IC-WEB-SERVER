@@ -1,0 +1,30 @@
+commit a70f68e53889b0adf7d0d8e257c02d73f44bea0c (HEAD -> main, tag: 0.2.0)
+Author: ThanthongFifa <fifa0962@gmail.com>
+Date:   Sun Jun 20 23:21:24 2021 +0700
+
+    milestone2 done
+
+diff --git a/samples/request0 b/samples/request0
+index 931acdf..eecf78b 100644
+--- a/samples/request0
++++ b/samples/request0
+@@ -1,4 +1,3 @@
+ GET /pcsa/ HTTP/1.1
+ Host: pcsa.cs.muzoo.io
+ 
+-
+diff --git a/samples/request1_GET b/samples/request1_GET
+index 2275fa2..b2eac00 100644
+--- a/samples/request1_GET
++++ b/samples/request1_GET
+@@ -1,6 +1,6 @@
+ GET /courses/ooc/ HTTP/1.1
+ Host: cs.muic.mahidol.ac.th
+-Connection: keep-alive
++Connection: close^M
+ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8
+ User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.99 Safari/537.36
+ Accept-Encoding: gzip, deflate, sdch
+diff --git a/src/icws.c b/src/icws.c
+index 3b1ad6f..ca063cd 100644
+--- a/src/icws.c
