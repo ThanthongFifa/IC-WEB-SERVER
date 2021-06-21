@@ -363,16 +363,18 @@ void* conn_handler(void *args) {
 void* thread_function(void *args){
     for (;;) {
         int *pclient;
+        int i = 0;
 
         pthread_mutex_lock(&mutex);
 
         if( (pclient = dequeue()) == NULL){
              pthread_cond_wait(&condition_var, &mutex);
              pclient = dequeue();
+             i = 1;
         }
 
         pthread_mutex_unlock(&mutex);
-        conn_handler(pclient);
+        if (i > 0 ){conn_handler(pclient);}
     }
 }
 
