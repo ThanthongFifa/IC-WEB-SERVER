@@ -24,6 +24,7 @@ int num_thread;
 
 pthread_t thread_pool[MAXTHREAD];
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_parse = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condition_var = PTHREAD_COND_INITIALIZER;
 
 char* dirName;
@@ -192,12 +193,16 @@ void send_get(int connFd, char* rootFol, char* req_obj, char* connection_str) {
 }
     
 int serve_http(int connFd, char* rootFol){
+    //printf("---------- calling serve_http ----------\n");
     char buf[MAXBUF];
     char line[MAXBUF];
     struct pollfd fds[1];
+    int readline;
+    char lastline_end[2];
     
     //check timeout
     for(;;){
+        //printf("calling poll()\n");
         fds[0].fd = connFd;
         fds[0].events = POLLIN;
 
@@ -212,29 +217,49 @@ int serve_http(int connFd, char* rootFol){
             printf("timeout\n");
             return CLOSE;
         } else{
-            while ( read_line(connFd, line, MAXBUF) > 0 ){ //
+            while ( (readline = read(connFd, line, MAXBUF)) > 0 ){
                 strcat(buf, line);
-                if (strcmp(line, "\r\n") == 0){ 
-                    break; 
+
+                if (strstr(buf, "\r\n\r\n") != NULL){
+                    break;
                 }
+                memset(line, '\0', MAXBUF);
             }
+            printf("done reading\n");
             break;
         }
     }
 
-    pthread_mutex_lock(&mutex);
-    Request *request = parse(buf,MAXBUF,connFd);
-    pthread_mutex_unlock(&mutex);
 
+    pthread_mutex_lock(&mutex_parse);
+    Request *request = parse(buf,MAXBUF,connFd);
+    pthread_mutex_unlock(&mutex_parse);
+
+    //connection type
     int connection;
     char* connection_str;
-
     connection = PERSISTENT;
     connection_str = "keep-alive";
 
     char* head_name;
     char* head_val;
 
+
+    char headr[MAXBUF];
+
+    if (request == NULL){ // check parsing fail
+        printf("LOG: Failed to parse request\n");
+        sprintf(headr, 
+            "HTTP/1.1 400 Parsing Failed\r\n"
+            "Date: %s\r\n"
+            "Server: icws\r\n"
+            "Connection: %s\r\n", today(), connection_str);
+        write_all(connFd, headr, strlen(headr));
+        memset(buf, 0, MAXBUF);
+        memset(headr, 0, MAXBUF);
+        return connection;
+    }
+    
     // check if close or keep-alive
     for(int i = 0; i < request->header_count;i++){
         head_name = request->headers[i].header_name;
@@ -248,22 +273,7 @@ int serve_http(int connFd, char* rootFol){
         }
     }
 
-    char headr[MAXBUF];
-
-    if (request == NULL){ // check parsing fail
-        printf("LOG: Failed to parse request\n");
-        sprintf(headr, 
-            "HTTP/1.1 400 Parsing Failed\r\n"
-            "Date: %s\r\n"
-            "Server: icws\r\n"
-            "Connection: %s\r\n", today(), connection_str);
-        write_all(connFd, headr, strlen(headr));
-        memset(buf, 0, MAXBUF);
-        memset(line, 0, MAXBUF);
-        memset(headr, 0, MAXBUF);
-        return connection;
-    }
-    else if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
+    if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
         printf("LOG: Incompatible HTTP version\n");
         sprintf(headr, 
             "HTTP/1.1 505 incompatable version\r\n"
@@ -274,7 +284,6 @@ int serve_http(int connFd, char* rootFol){
         free(request->headers);
         free(request);
         memset(buf, 0, MAXBUF);
-        memset(line, 0, MAXBUF);
         memset(headr, 0, MAXBUF);
         return connection;
     }
@@ -300,7 +309,6 @@ int serve_http(int connFd, char* rootFol){
     free(request->headers);
     free(request);
     memset(buf, 0, MAXBUF);
-    memset(line, 0, MAXBUF);
     memset(headr, 0, MAXBUF);
     return connection;
 }
@@ -363,18 +371,19 @@ void* conn_handler(void *args) {
 void* thread_function(void *args){
     for (;;) {
         int *pclient;
-        int i = 0;
+        int found = 0;
 
         pthread_mutex_lock(&mutex);
 
         if( (pclient = dequeue()) == NULL){
              pthread_cond_wait(&condition_var, &mutex);
              pclient = dequeue();
-             i = 1;
+             found = 1;
         }
 
         pthread_mutex_unlock(&mutex);
-        if (i > 0 ){conn_handler(pclient);}
+        
+        if (found > 0 ){conn_handler(pclient);}
     }
 }
 
@@ -438,8 +447,8 @@ int main(int argc, char* argv[]) {
 
         pthread_mutex_lock(&mutex);
 
-        pthread_cond_signal(&condition_var);
         enqueue(context);
+        pthread_cond_signal(&condition_var);
 
         pthread_mutex_unlock(&mutex);
 
@@ -463,6 +472,7 @@ this code is base on inclass micro_cc.c
 - Thanawin Boonpojanasoontorn  (6280163)
 - Vanessa Rujipatanakul (6280204)
 - Krittin Nisunarat (6280782)
+- Khwanchanok Chaichanayothinwatchara (6280164)
 
 ------------ References ------------
 
