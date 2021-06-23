@@ -23,7 +23,7 @@
 int num_thread;
 
 pthread_t thread_pool[MAXTHREAD];
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_parse = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condition_var = PTHREAD_COND_INITIALIZER;
 
@@ -198,7 +198,7 @@ int serve_http(int connFd, char* rootFol){
     char line[MAXBUF];
     struct pollfd fds[1];
     int readline;
-    char lastline_end[2];
+    //char lastline_end[2];
     
     //check timeout
     for(;;){
@@ -217,15 +217,16 @@ int serve_http(int connFd, char* rootFol){
             printf("timeout\n");
             return CLOSE;
         } else{
-            while ( (readline = read(connFd, line, MAXBUF)) > 0 ){
+            while ( (readline = read(connFd, line, MAXBUF)) > 0 ){ // fix this part
                 strcat(buf, line);
 
                 if (strstr(buf, "\r\n\r\n") != NULL){
+                    memset(line, '\0', MAXBUF);
                     break;
                 }
                 memset(line, '\0', MAXBUF);
             }
-            printf("done reading\n");
+            //printf("done reading\n");
             break;
         }
     }
@@ -254,9 +255,12 @@ int serve_http(int connFd, char* rootFol){
             "Date: %s\r\n"
             "Server: icws\r\n"
             "Connection: %s\r\n", today(), connection_str);
+        //printf("after sprintf\n");
         write_all(connFd, headr, strlen(headr));
+        //printf("after write_all\n");
         memset(buf, 0, MAXBUF);
         memset(headr, 0, MAXBUF);
+        // printf("%s\n", connection_str);
         return connection;
     }
     
@@ -310,6 +314,7 @@ int serve_http(int connFd, char* rootFol){
     free(request);
     memset(buf, 0, MAXBUF);
     memset(headr, 0, MAXBUF);
+    //printf("done\n");
     return connection;
 }
 
@@ -318,72 +323,52 @@ struct survival_bag {
         int connFd;
 };
 
-struct node {
-    struct node* next;
-    struct survival_bag *context;
-};
-typedef struct node node_t;
+struct survival_bag taskQueue[256];
+int taskCount = 0;
 
-node_t* head = NULL;
-node_t* tail = NULL;
-
-void enqueue(struct survival_bag *context) {
-    node_t *newnode = malloc(sizeof(node_t));
-    newnode->context = context;
-    newnode->next = NULL;
-    if (tail == NULL){
-        head = newnode;
-    } else {
-        tail->next = newnode;
-    }
-    tail = newnode;
-}
-
-struct survival_bag* dequeue(){
-    if (head == NULL){
-        return NULL;
-    } else {
-        struct survival_bag *result = head->context;
-        node_t *temp = head;
-        head = head->next;
-        if (head == NULL ){tail = NULL;}
-        free(temp);
-        return result;
-    }
-}
-
-void* conn_handler(void *args) {
-    struct survival_bag *context = (struct survival_bag *) args;
+void* conn_handler(struct survival_bag* task) {
+    //struct survival_bag *context = (struct survival_bag *) args;
     int connection = PERSISTENT;
     
     //pthread_detach(pthread_self());
     while(connection == PERSISTENT){
-        connection = serve_http(context->connFd, dirName);
+        connection = serve_http(task->connFd, dirName);
     }
 
-    close(context->connFd); // close connection
+    close(task->connFd); // close connection
     
-    free(context); /* Done, get rid of our survival bag */
+    //free(task); /* Done, get rid of our survival bag */
 
     return NULL; /* Nothing meaningful to return */
 }
 
-void* thread_function(void *args){
-    for (;;) {
-        int *pclient;
-        int found = 0;
+void submitTask(struct survival_bag task) {
+    pthread_mutex_lock(&mutex_queue);
+    taskQueue[taskCount] = task;
+    taskCount++;
+    pthread_mutex_unlock(&mutex_queue);
+    pthread_cond_signal(&condition_var);
+}
 
-        pthread_mutex_lock(&mutex);
+void* thread_function(void* args) {
+    while (1) {
+        struct survival_bag task;
 
-        if( (pclient = dequeue()) == NULL){
-             pthread_cond_wait(&condition_var, &mutex);
-             pclient = dequeue();
-             found = 1;
+        pthread_mutex_lock(&mutex_queue);
+        while (taskCount == 0) {
+            //printf("stuck here\n");
+            pthread_cond_wait(&condition_var, &mutex_queue);
         }
+        //printf("out here\n");
 
-        pthread_mutex_unlock(&mutex);
-        
-        if (found > 0 ){conn_handler(pclient);}
+        task = taskQueue[0];
+        int i;
+        for (i = 0; i < taskCount - 1; i++) {
+            taskQueue[i] = taskQueue[i + 1];
+        }
+        taskCount--;
+        pthread_mutex_unlock(&mutex_queue);
+        conn_handler(&task);
     }
 }
 
@@ -391,7 +376,8 @@ void* thread_function(void *args){
                 ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> 
 
    as client:   telnet localhost 22702
-                curl http://localhost:1234/index.html
+                curl http://localhost:22702/index.html
+                siege -c 10 -r 50 http://localhost:22702/index.html
 
                 netcat localhost [portnum] < [filename]
                 GET /<filename> HTTP/1.1
@@ -442,19 +428,23 @@ int main(int argc, char* argv[]) {
                 
         //pthread_create(&threadInfo, NULL, conn_handler, (void *) context);
 
-        int * pclient = malloc(sizeof(int));
-        *pclient = connFd;
+        // int * pclient = malloc(sizeof(int));
+        // *pclient = connFd;
 
-        pthread_mutex_lock(&mutex);
+        //pthread_mutex_lock(&mutex_queue);
 
-        enqueue(context);
-        pthread_cond_signal(&condition_var);
+        submitTask(*context);
+        //pthread_cond_signal(&condition_var);
 
-        pthread_mutex_unlock(&mutex);
+        //pthread_mutex_unlock(&mutex_queue);
 
 
     }
-
+    for (int i=0; i < num_thread; i++){
+        if(pthread_join(thread_pool[i], NULL) != 0){
+            printf("fail to join thread\n");
+        }
+    }
     return 0;
 }
 
@@ -492,6 +482,7 @@ https://github.com/antimattercorrade/concurrent_web_servers
 //Thread pool
 https://youtu.be/_n2hE2gyPxU
 https://youtube.com/playlist?list=PL9IEJIKnBJjH_zM5LnovnoaKlXML5qh17
+https://code-vault.net/lesson/j62v2novkv:1609958966824
 
 //Timeout poll()
 https://www.youtube.com/watch?v=UP6B324Qh5k 
