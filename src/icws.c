@@ -326,7 +326,7 @@ struct survival_bag {
 struct survival_bag taskQueue[256];
 int taskCount = 0;
 
-void* conn_handler(struct survival_bag* task) {
+void* doTask(struct survival_bag* task) {
     //struct survival_bag *context = (struct survival_bag *) args;
     int connection = PERSISTENT;
     
@@ -368,7 +368,7 @@ void* thread_function(void* args) {
         }
         taskCount--;
         pthread_mutex_unlock(&mutex_queue);
-        conn_handler(&task);
+        doTask(&task);
     }
 }
 
@@ -426,7 +426,7 @@ int main(int argc, char* argv[]) {
         else
             printf("Connection from ?UNKNOWN?\n");
                 
-        //pthread_create(&threadInfo, NULL, conn_handler, (void *) context);
+        //pthread_create(&threadInfo, NULL, doTask, (void *) context);
 
         // int * pclient = malloc(sizeof(int));
         // *pclient = connFd;
