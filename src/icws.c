@@ -12,6 +12,19 @@
 #include "parse.h"
 #include "pcsa_net.h"
 #include <poll.h>
+#include <getopt.h>
+
+#include <sys/wait.h>
+
+int poison;
+
+char *port;
+char *numThread;
+char *timeOut;
+char* dirName;
+char* cgi_dirName;
+
+int timeout;
 
 /* Rather arbitrary. In real life, be careful with buffer overflow */
 #define MAXBUF 8192
@@ -26,9 +39,6 @@ pthread_t thread_pool[MAXTHREAD];
 pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_parse = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condition_var = PTHREAD_COND_INITIALIZER;
-
-char* dirName;
-int timeout;
 
 typedef struct sockaddr SA;
 
@@ -191,6 +201,10 @@ void send_get(int connFd, char* rootFol, char* req_obj, char* connection_str) {
         printf("Failed to close input\n");
     }
 }
+
+void send_post(int connFd, char* rootFol, char* req_obj, char* connection_str){
+    //printf("POST\n");
+}
     
 int serve_http(int connFd, char* rootFol){
     //printf("---------- calling serve_http ----------\n");
@@ -241,6 +255,8 @@ int serve_http(int connFd, char* rootFol){
     char* connection_str;
     connection = PERSISTENT;
     connection_str = "keep-alive";
+    // connection = CLOSE;
+    // connection_str = "close";
 
     char* head_name;
     char* head_val;
@@ -277,8 +293,9 @@ int serve_http(int connFd, char* rootFol){
         }
     }
 
-    if (strcasecmp( request->http_version , "HTTP/1.1") != 0){ // check HTTP version
+    if (strcasecmp( request->http_version , "HTTP/1.1") != 0 && strcasecmp( request->http_version , "HTTP/1.0") != 0){ // check HTTP version
         printf("LOG: Incompatible HTTP version\n");
+        printf("request->http_version: %s\n",request->http_version);
         sprintf(headr, 
             "HTTP/1.1 505 incompatable version\r\n"
             "Date: %s\r\n"
@@ -295,10 +312,15 @@ int serve_http(int connFd, char* rootFol){
     if (strcasecmp( request->http_method , "GET") == 0 ) { // handle GET request
         printf("LOG: GET method requested\n");
         send_get(connFd, rootFol, request->http_uri, connection_str);
+        printf("done GET\n");
     }
     else if (strcasecmp( request->http_method , "HEAD") == 0 ) { // handle HEAD request
         printf("LOG: HEAD method requested\n");
         send_header(connFd, rootFol, request->http_uri, connection_str);
+    }
+    else if (strcasecmp( request->http_method , "POST") == 0 ) { // handle POST request
+        printf("LOG: POST method requested\n");
+        send_post(connFd, rootFol, request->http_uri, connection_str);
     }
     else {
         printf("LOG: Unknown request\n\n");
@@ -314,7 +336,7 @@ int serve_http(int connFd, char* rootFol){
     free(request);
     memset(buf, 0, MAXBUF);
     memset(headr, 0, MAXBUF);
-    //printf("done\n");
+    printf("done\n");
     return connection;
 }
 
@@ -332,8 +354,10 @@ void* doTask(struct survival_bag* task) {
     
     //pthread_detach(pthread_self());
     while(connection == PERSISTENT){
+        //if(task->connFd < 0){break;}
         connection = serve_http(task->connFd, dirName);
     }
+    printf("done dotask\n");
 
     close(task->connFd); // close connection
     
@@ -353,6 +377,7 @@ void submitTask(struct survival_bag task) {
 void* thread_function(void* args) {
     while (1) {
         struct survival_bag task;
+        //pthread_detatch(pthread_self);
 
         pthread_mutex_lock(&mutex_queue);
         while (taskCount == 0) {
@@ -368,34 +393,98 @@ void* thread_function(void* args) {
         }
         taskCount--;
         pthread_mutex_unlock(&mutex_queue);
+
         doTask(&task);
+
+        if(task.connFd < 0){break;}
+    }
+    // printf("stop work\n");
+    // pthread_exit(pthread_self);
+}
+
+void sigingHandeler(int sig) {
+	printf("\nLOG: Shutting down\n");
+
+	poison = -1;
+
+    struct survival_bag *poisonPill = (struct survival_bag *) malloc(sizeof(struct survival_bag));
+    poisonPill->connFd = -1;
+
+    for (int i=0; i < num_thread; i++){
+        printf("feed poison\n");
+        submitTask(*poisonPill);
     }
 }
 
-/* as server:   ./icws --port 22702 --root ./sample-www --numThreads 5 --timeout 5
-                ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> 
-
+/* as server:   ./icws --port 22702 --root ./sample-www --numThreads 1 --timeout 10 --cgiHandler ./cgi-demo
+                ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> --cgiHandler <cgiProgram>
    as client:   telnet localhost 22702
                 curl http://localhost:22702/index.html
-                siege -c 10 -r 50 http://localhost:22702/index.html
+                siege -c 10 -r 50 http://localhost:22702/
 
                 netcat localhost [portnum] < [filename]
                 GET /<filename> HTTP/1.1
                 HEAD /<filename> HTTP/1.1
 */
-int main(int argc, char* argv[]) {
-    int listenFd = open_listenfd(argv[2]);
 
-    if (argc > 7){
-        dirName = argv[4];
-        num_thread = atoi(argv[6]); //make 5 threads
-        timeout = atoi(argv[8]);
+    
+
+int main(int argc, char* argv[]) {
+    //int listenFd = open_listenfd(argv[2]);
+
+    //signal(SIGINT, sigingHandeler);
+
+    // if (argc > 7){
+    //     dirName = argv[4];
+    //     num_thread = atoi(argv[6]); //make 5 threads
+    //     timeout = atoi(argv[8]);
+    // }
+    // else{
+    //     dirName = "./";
+    //     num_thread = 5;
+    //     timeout = 5;
+    // }
+    static struct option long_ops[] =
+    {
+        {"port", required_argument, NULL, 'p'},
+        {"root", required_argument, NULL, 'r'}, 
+        {"numThreads", required_argument, NULL, 'n'}, 
+        {"timeout", required_argument, NULL, 't'}, 
+        {"cgiHandler", required_argument, NULL, 'c'},
+        {NULL, 0, NULL, 0}
+    };
+    int ch;
+    while ((ch = getopt_long(argc, argv, "p:r:n:t:c:", long_ops, NULL)) != -1){
+        switch (ch)
+        {
+            case 'p':
+                printf("port: %s\n", optarg);
+                port = optarg;
+                break;
+            case 'r':
+                printf("root: %s\n", optarg);
+                dirName = optarg;
+                break;
+            case 'n':
+                printf("numThreads: %s\n", optarg);
+                numThread = optarg;
+                break;
+            case 't':
+                printf("timeout: %s\n", optarg);
+                timeOut = optarg;
+                break;
+            case 'c':
+                printf("cgi program: %s\n", optarg);
+                cgi_dirName = optarg;
+                break;
+        }
+  
     }
-    else{
-        dirName = "./";
-        num_thread = 5;
-        timeout = 5;
-    }
+
+    int listenFd = open_listenfd(port);
+    int num_thread = atoi(numThread);
+    timeout = atoi(timeOut);
+
 
     //create thread
     for (int i=0; i < num_thread; i++){
@@ -405,6 +494,11 @@ int main(int argc, char* argv[]) {
     }
 
     for (;;) {
+        // printf("\npoison: %d",poison);
+        // if(poison < 0){
+        //     printf("found poison\n");
+        //     break;
+        //     }
 
         struct sockaddr_storage clientAddr;
         socklen_t clientLen = sizeof(struct sockaddr_storage);
@@ -445,6 +539,12 @@ int main(int argc, char* argv[]) {
             printf("fail to join thread\n");
         }
     }
+    pthread_mutex_destroy(&mutex_queue);
+    pthread_mutex_destroy(&mutex_parse);
+    pthread_cond_destroy(&condition_var);
+
+    return 0;
+
     return 0;
 }
 
@@ -457,7 +557,7 @@ int main(int argc, char* argv[]) {
 
 this code is base on inclass micro_cc.c
 
------------- People that help me ------------
+------------ Collaborator List ------------
 
 - Thanawin Boonpojanasoontorn  (6280163)
 - Vanessa Rujipatanakul (6280204)
@@ -487,7 +587,10 @@ https://code-vault.net/lesson/j62v2novkv:1609958966824
 //Timeout poll()
 https://www.youtube.com/watch?v=UP6B324Qh5k 
 
-//Presistant server
+//Persistant server
 https://github.com/nathan78906/HTTPServer/blob/master/PersistentServer.c 
+
+//CGI
+https://github.com/klange/cgiserver/blob/master/cgiserver.c
 
 */
