@@ -9,3 +9,9 @@ You will extend the parser in the starter code to parse HTTP requests. Your code
 Due: Mon June 21
 
 You will extend your Web server to serve multiple requests at once. More specifically, whereas the server at the end of Milestone 1 is only capable of handling one request at a time, your server for Milestone 2 will be able to handle tens of hundreds of requests per second. You will use a thread-based design (you learned about threads earlier and this is your chance to deeply understand it.) For performance, you are expected to design and implement a thread pool, so each request will be handled by a thread worker in the pool.
+
+
+## Updated: Milestone 3: POST Request and Dynamic Content via CGI [25 points]
+Due: Wed June 30
+
+You will your server to handle POST requests, as well as dynamic content via CGI. This means when a request of this kind comes in, the server will run the corresponding Linux program following the common gateway interface (CGI) protocol, as specified by RFC3875. Your server is expected to continue to be concurrent—for both static and dynamic requests.
