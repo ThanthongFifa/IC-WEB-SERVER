@@ -24,35 +24,35 @@ Document Path:          /test.html
 Document Length:        4096 bytes
 
 Concurrency Level:      256
-Time taken for tests:   0.510 seconds
+Time taken for tests:   0.447 seconds
 Complete requests:      1000
-Failed requests:        371
-   (Connect: 0, Receive: 0, Length: 186, Exceptions: 185)
-Total transferred:      3466826 bytes
-HTML transferred:       3334144 bytes
-Requests per second:    1961.87 [#/sec] (mean)
-Time per request:       130.488 [ms] (mean)
-Time per request:       0.510 [ms] (mean, across all concurrent requests)
-Transfer rate:          6642.04 [Kbytes/sec] received
+Failed requests:        508
+   (Connect: 0, Receive: 0, Length: 254, Exceptions: 254)
+Total transferred:      3177214 bytes
+HTML transferred:       3055616 bytes
+Requests per second:    2235.31 [#/sec] (mean)
+Time per request:       114.526 [ms] (mean)
+Time per request:       0.447 [ms] (mean, across all concurrent requests)
+Transfer rate:          6935.59 [Kbytes/sec] received
 
 Connection Times (ms)
               min  mean[+/-sd] median   max
-Connect:        0    1   2.2      0      14
-Processing:     0    6   7.4      2      49
-Waiting:        0    6   7.6      1      49
-Total:          0    7   7.3      3      49
+Connect:        0    2   3.2      0      14
+Processing:     0    5   5.4      2      18
+Waiting:        0    4   5.7      1      18
+Total:          0    6   5.8      3      18
 
 Percentage of the requests served within a certain time (ms)
   50%      3
-  66%      7
+  66%     11
   75%     13
-  80%     16
-  90%     19
-  95%     21
-  98%     22
-  99%     23
- 100%     49 (longest request)
+  80%     14
+  90%     15
+  95%     15
+  98%     16
+  99%     16
+ 100%     18 (longest request)
 
 
 
- ./icws --port 22702 --root ./sample-www --numThreads 256 --timeout 0.1 --cgiHandler ./cgi-demo
+ ./icws --port 22702 --root ./sample-www --numThreads 256 --timeout 0.25 --cgiHandler ./cgi-demo

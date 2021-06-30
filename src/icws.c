@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -206,6 +207,202 @@ void send_post(int connFd, char* rootFol, char* req_obj, char* connection_str){
     //printf("POST\n");
 }
     
+void fail_exit(char *msg) { fprintf(stderr, "%s\n", msg); exit(-1); }
+
+int pipeee(int connFd, char* rootFol, Request *request){
+    int c2pFds[2]; /* Child to parent pipe */
+    int p2cFds[2]; /* Parent to child pipe */
+    //printf("connFd: %d\n",connFd);
+
+    if (pipe(c2pFds) < 0) fail_exit("c2p pipe failed.");
+    if (pipe(p2cFds) < 0) fail_exit("p2c pipe failed.");
+
+    int pid = fork();
+
+    if (pid < 0) fail_exit("Fork failed.");
+    if (pid == 0) { /* Child - set up the conduit & run inferior cmd */
+
+        /* Wire pipe's incoming to child's stdin */
+        /* First, close the unused direction. */
+        if (close(p2cFds[1]) < 0) fail_exit("failed to close p2c[1]");
+        if (p2cFds[0] != STDIN_FILENO) {
+            if (dup2(p2cFds[0], STDIN_FILENO) < 0)
+                fail_exit("dup2 stdin failed.");
+            if (close(p2cFds[0]) < 0)
+                fail_exit("close p2c[0] failed.");
+        }
+
+        /* Wire child's stdout to pipe's outgoing */
+        /* But first, close the unused direction */
+        if (close(c2pFds[0]) < 0) fail_exit("failed to close c2p[0]");
+        if (c2pFds[1] != STDOUT_FILENO) {
+            if (dup2(c2pFds[1], STDOUT_FILENO) < 0)
+                fail_exit("dup2 stdin failed.");
+            if (close(c2pFds[1]) < 0)
+                fail_exit("close pipeFd[0] failed.");
+        }
+
+        //setenv
+        char* accept = NULL;
+        char* referer = NULL;
+        char* accept_encoding = NULL;
+        char* accept_language = NULL;
+        char* accept_charset = NULL;
+        char* accept_cookie = NULL;
+        char* accept_user_agent = NULL;
+        char* connection = NULL;
+        char* content_length = NULL;
+
+        char* head_name;
+        char* head_val;
+
+        for(int i = 0; i < request->header_count;i++){
+            head_name = request->headers[i].header_name;
+            head_val = request->headers[i].header_value;
+            if(strcasecmp(head_name, "CONNECTION") == 0){
+                connection = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT") == 0){
+                char* accept = head_val;
+            }
+            else if(strcasecmp(head_name, "REFERER") == 0){
+                referer = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT_ENCODING") == 0){
+                accept_encoding = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT_LANGUAGE") == 0){
+                accept_language = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT_CHARSET") == 0){
+                accept_charset = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT_COOKIE") == 0){
+                accept_cookie = head_val;
+            }
+            else if(strcasecmp(head_name, "ACCEPT_USER_AGENT") == 0){
+                accept_user_agent = head_val;
+            }
+            else if(strcasecmp(head_name, "CONTENT_LENGTH") == 0){
+                content_length = head_val;
+            }
+        }
+
+        char* ext = get_filename_ext(request->http_uri);
+        char* mime = get_mime(ext);
+        setenv("CONTENT_TYPE", mime, 1);
+        //printf("1\n");
+
+        setenv("GATEWAY_INTERFACE", "CGI/1.1", 1);
+        //printf("2\n");
+        char** tokenList[MAXBUF];
+        int i = 0;
+        char* token = strtok(request->http_uri, "?");
+        while( token != NULL ) {
+            tokenList[i] = token;
+            i++;
+            //printf( " %s\n", token );
+            token = strtok(NULL, "?");
+        }
+        setenv("PATH_INFO", tokenList[0], 1); //yes
+        //printf("3\n");
+
+        
+        setenv("QUERY_STRIN", tokenList[1], 1); //yes
+        //printf("4\n");
+
+        printf("connFd: %s\n",connFd); // for some reason it stop here
+        setenv("REMOTE_ADDR", connFd, 1);
+        printf("5\n");
+
+        setenv("REQUEST_METHOD", request->http_method, 1);
+        printf("6\n");
+
+        setenv("REQUEST_URI", request->http_uri, 1);
+        printf("7\n");
+
+        setenv("SCRIPT_NAME", cgi_dirName, 1); // yes
+        printf("8\n");
+
+        setenv("SERVER_PORT", port, 1);
+        printf("9\n");
+
+        setenv("SERVER_PROTOCOL", "HTTP/1.1", 1);
+        printf("10\n");
+
+        setenv("SERVER_SOFTWARE", "FIFA-ICWS", 1);
+        printf("11\n");
+
+        setenv("HTTP_ACCEPT", accept, 1);
+        printf("12\n");
+
+        if( referer != NULL)
+            setenv("HTTP_REFERER", referer, 1);
+
+        if( accept_encoding != NULL)
+            setenv("HTTP_ACCEPT_ENCODING", accept_encoding, 1);
+
+        if( accept_language != NULL)
+            setenv("HTTP_ACCEPT_LANGUAGE", accept_language, 1);
+
+        if( accept_charset != NULL)
+            setenv("HTTP_ACCEPT_CHARSET", accept_charset, 1);
+
+        if( accept_cookie != NULL)
+            setenv("HTTP_COOKIE", accept_cookie, 1);
+
+        if( accept_user_agent != NULL)
+            setenv("HTTP_USER_AGENT", accept_user_agent, 1);
+
+        if( connection != NULL)
+            setenv("HTTP_CONNECTION", connection, 1);
+
+        if( content_length != NULL)
+            setenv("CONTENT_LENGTH", content_length, 1);
+
+        printf("after set env\n");
+
+        char* inferiorArgv[] = {cgi_dirName, NULL};
+        printf("hello\n");
+
+        if (execvpe(inferiorArgv[0], inferiorArgv, environ) < 0)
+            fail_exit("exec failed.");
+    }
+    else { /* Parent - send a random message */
+        /* Close the write direction in parent's incoming */
+        if (close(c2pFds[1]) < 0) fail_exit("failed to close c2p[1]");
+
+        /* Close the read direction in parent's outgoing */
+        if (close(p2cFds[0]) < 0) fail_exit("failed to close p2c[0]");
+
+        char *message = "OMGWTFBBQ\n";
+        /* Write a message to the child - replace with write_all as necessary */
+        write(p2cFds[1], message, strlen(message));
+        /* Close this end, done writing. */
+        if (close(p2cFds[1]) < 0) fail_exit("close p2c[01] failed.");
+
+        char buf[MAXBUF+1];
+        ssize_t numRead;
+        /* Begin reading from the child */
+        while ((numRead = read(c2pFds[0], buf, MAXBUF))>0) {
+            printf("Parent saw %ld bytes from child...\n", numRead);
+            buf[numRead] = '\x0'; /* Printing hack; won't work with binary data */
+            printf("-------\n");
+            printf("%s", buf);
+            printf("-------\n");
+            write_all(connFd, buf, strlen(buf) );
+        }
+        /* Close this end, done reading. */
+        if (close(c2pFds[0]) < 0) fail_exit("close c2p[01] failed.");
+
+        /* Wait for child termination & reap */
+        int status;
+
+        if (waitpid(pid, &status, 0) < 0) fail_exit("waitpid failed.");
+        printf("Child exited... parent's terminating as well.\n");
+    }
+}   
+
 int serve_http(int connFd, char* rootFol){
     //printf("---------- calling serve_http ----------\n");
     char buf[MAXBUF];
@@ -293,6 +490,12 @@ int serve_http(int connFd, char* rootFol){
         }
     }
 
+    char* temp[MAXBUF];
+    strncpy(temp, request->http_uri, 5);
+   
+    
+
+
     if (strcasecmp( request->http_version , "HTTP/1.1") != 0 && strcasecmp( request->http_version , "HTTP/1.0") != 0){ // check HTTP version
         printf("LOG: Incompatible HTTP version\n");
         printf("request->http_version: %s\n",request->http_version);
@@ -308,8 +511,15 @@ int serve_http(int connFd, char* rootFol){
         memset(headr, 0, MAXBUF);
         return connection;
     }
-
-    if (strcasecmp( request->http_method , "GET") == 0 ) { // handle GET request
+    if ( (strcasecmp( request->http_method , "GET") == 0 || 
+        strcasecmp( request->http_method , "HEAD") == 0 || 
+        strcasecmp( request->http_method , "POST") == 0 ) &&
+        strcmp( temp , "/cgi/") == 0 )
+        {
+            printf("----------pipe\n");
+            pipeee(connFd, rootFol, request);
+    }
+    else if (strcasecmp( request->http_method , "GET") == 0 ) { // handle GET request
         printf("LOG: GET method requested\n");
         send_get(connFd, rootFol, request->http_uri, connection_str);
         //printf("done GET\n");
@@ -419,10 +629,11 @@ void sigingHandeler(int sig) {
 /* as server:   ./icws --port 22702 --root ./sample-www --numThreads 1 --timeout 10 --cgiHandler ./cgi-demo
                 ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> --cgiHandler <cgiProgram>
    as client:   telnet localhost 22702
+                ab -n 1000 -c 100 http://localhost:22702/test.html
                 curl http://localhost:22702/index.html
                 siege -c 10 -r 50 http://localhost:22702/
                 netcat localhost [portnum] < [filename]
-                GET /<filename> HTTP/1.1
+                GET /cgi/?text=ICWS HTTP/1.1
                 HEAD /<filename> HTTP/1.1
 */
 
@@ -528,7 +739,6 @@ int main(int argc, char* argv[]) {
     pthread_mutex_destroy(&mutex_parse);
     pthread_cond_destroy(&condition_var);
 
-    return 0;
 
     return 0;
 }
