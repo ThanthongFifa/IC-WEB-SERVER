@@ -1,0 +1,58 @@
+This is ApacheBench, Version 2.3 <$Revision: 1843412 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient)
+Completed 100 requests
+Completed 200 requests
+Completed 300 requests
+Completed 400 requests
+Completed 500 requests
+Completed 600 requests
+Completed 700 requests
+Completed 800 requests
+Completed 900 requests
+Completed 1000 requests
+Finished 1000 requests
+
+
+Server Software:        icws
+Server Hostname:        localhost
+Server Port:            22702
+
+Document Path:          /test.html
+Document Length:        4096 bytes
+
+Concurrency Level:      256
+Time taken for tests:   0.510 seconds
+Complete requests:      1000
+Failed requests:        371
+   (Connect: 0, Receive: 0, Length: 186, Exceptions: 185)
+Total transferred:      3466826 bytes
+HTML transferred:       3334144 bytes
+Requests per second:    1961.87 [#/sec] (mean)
+Time per request:       130.488 [ms] (mean)
+Time per request:       0.510 [ms] (mean, across all concurrent requests)
+Transfer rate:          6642.04 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    1   2.2      0      14
+Processing:     0    6   7.4      2      49
+Waiting:        0    6   7.6      1      49
+Total:          0    7   7.3      3      49
+
+Percentage of the requests served within a certain time (ms)
+  50%      3
+  66%      7
+  75%     13
+  80%     16
+  90%     19
+  95%     21
+  98%     22
+  99%     23
+ 100%     49 (longest request)
+
+
+
+ ./icws --port 22702 --root ./sample-www --numThreads 256 --timeout 0.1 --cgiHandler ./cgi-demo
