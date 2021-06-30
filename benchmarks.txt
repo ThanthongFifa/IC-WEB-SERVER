@@ -53,6 +53,20 @@ Percentage of the requests served within a certain time (ms)
   99%     16
  100%     18 (longest request)
 
+==================================================================
 
-
- ./icws --port 22702 --root ./sample-www --numThreads 256 --timeout 0.25 --cgiHandler ./cgi-demo
+** SIEGE 4.0.4
+** Preparing 10 concurrent users for battle.
+The server is now under siege...
+Transactions:                   1000 hits
+Availability:                 100.00 %
+Elapsed time:                   1.61 secs
+Data transferred:               3.91 MB
+Response time:                  0.01 secs
+Transaction rate:             621.12 trans/sec
+Throughput:                     2.43 MB/sec
+Concurrency:                    5.89
+Successful transactions:        1000
+Failed transactions:               0
+Longest transaction:            1.04
+Shortest transaction:           0.00
